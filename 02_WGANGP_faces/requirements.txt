@@ -1,0 +1,5 @@
+opencv-python
+numpy
+matplotlib
+tensorflow==2.10.*
+imageio
