@@ -35,7 +35,7 @@ def build_generator(noise_dim, output_channels=3, alpha=0.2):
 
     
 # Define the discriminator model
-def build_discriminator(img_shape, activation=None, alpha=0.2):
+def build_discriminator(img_shape, activation='linear', alpha=0.2):
     inputs = layers.Input(shape=img_shape, name="input")
 
     x = layers.Conv2D(64, (4, 4), strides=(2, 2), padding='same')(inputs)
