@@ -10,66 +10,13 @@ from keras.callbacks import TensorBoard
 
 from model import build_generator, build_discriminator
 
-# face dataset path
-dataset_path = "Dataset/img_align_celeba/img_align_celeba"
-
-img_shape = (64, 64, 3)
-
-train_images = []
-for image_path in tqdm(os.listdir(dataset_path)):
-    img = cv2.imread(os.path.join(dataset_path, image_path))
-    img = cv2.resize(img, (img_shape[0], img_shape[1]))
-    train_images.append(img)
-
-    # limit dataset to 100.000
-    if len(train_images) >= 100000:
-        break
-
-# Normalize pixel values to [-1, 1]
-train_images = (np.array(train_images).astype('float32') - 127.5) / 127.5 
-
-# Set the input shape and size for the generator and discriminator
-# img_shape = (28, 28, 1) # The shape of the input image, input to the discriminator
-noise_dim = 128 # The dimension of the noise vector, input to the generator
-model_path = 'Models/02_WGANGP_faces'
-os.makedirs(model_path, exist_ok=True)
-
-
-# Wasserstein loss for the discriminator
-def discriminator_w_loss(pred_real, pred_fake):
-    real_loss = tf.reduce_mean(pred_real)
-    fake_loss = tf.reduce_mean(pred_fake)
-    return fake_loss - real_loss
-
-# Wasserstein loss for the generator
-def generator_w_loss(pred_fake):
-    return -tf.reduce_mean(pred_fake)
-
-# def discriminator_loss(real_output, fake_output):
-#     real_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)(tf.ones_like(real_output), real_output)
-#     fake_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)(tf.zeros_like(fake_output), fake_output)
-#     total_loss = real_loss + fake_loss
-#     return total_loss
-
-# def generator_loss(fake_output):
-#     return tf.keras.losses.BinaryCrossentropy(from_logits=True)(tf.ones_like(fake_output), fake_output)
-
-generator = build_generator(noise_dim)
-generator.summary()
-
-discriminator = build_discriminator(img_shape)
-discriminator.summary()
-
-generator_optimizer = tf.keras.optimizers.Adam(0.0002, beta_1=0.5, beta_2=0.9)
-discriminator_optimizer = tf.keras.optimizers.Adam(0.0002, beta_1=0.5, beta_2=0.9)
-
 class WGAN_GP(tf.keras.models.Model):
-    def __init__(self, discriminator, generator, noise_dim, critic_extra_steps, gp_weight=10.0):
+    def __init__(self, discriminator, generator, noise_dim, discriminator_extra_steps, gp_weight=10.0):
         super(WGAN_GP, self).__init__()
         self.discriminator = discriminator
         self.generator = generator
         self.noise_dim = noise_dim
-        self.critic_extra_steps = critic_extra_steps
+        self.discriminator_extra_steps = discriminator_extra_steps
         self.gp_weight = gp_weight
 
     def compile(self, discriminator_opt, generator_opt, discriminator_loss, generator_loss, **kwargs):
@@ -79,14 +26,12 @@ class WGAN_GP(tf.keras.models.Model):
         self.discriminator_loss = discriminator_loss
         self.generator_loss = generator_loss
 
-    # UPDATE for WGAN-GP: use gradient penalty instead of weight clipping
     def gradient_penalty(self, batch_size, real_images, fake_images):
         """ Calculates the gradient penalty.
 
         Gradient penalty is calculated on an interpolated image
         and added to the discriminator loss.
         """
-
         # Generate random values for alpha
         alpha = tf.random.uniform(shape=[batch_size, 1, 1, 1], minval=0.0, maxval=1.0)
 
@@ -100,21 +45,21 @@ class WGAN_GP(tf.keras.models.Model):
 
         # 3. Calculate the gradients w.r.t to the interpolated image
         gradients = gp_tape.gradient(pred, interpolated_images)
-        # grads = gp_tape.gradient(pred, interpolated_images)
+
         # 4. Calculate the norm of the gradients.
-        # norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
-        # norm = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1) + 1e-12)
         norm = tf.norm(tf.reshape(gradients, [batch_size, -1]), axis=1)
         # 5. Calculate gradient penalty
         gradient_penalty = tf.reduce_mean((norm - 1.0) ** 2)
+
         return gradient_penalty
 
     def train_step(self, real_images):
         batch_size = tf.shape(real_images)[0]
         noise = tf.random.normal([batch_size, self.noise_dim])
 
+        # Step 1. Train the discriminator with both real images and fake images
         # Train the critic more often than the generator by 5 times (self.c_extra_steps) 
-        for i in range(self.critic_extra_steps):
+        for _ in range(self.discriminator_extra_steps):
 
             # Step 1. Train the discriminator with both real images and fake images
             with tf.GradientTape() as tape:
@@ -122,37 +67,29 @@ class WGAN_GP(tf.keras.models.Model):
                 pred_real = self.discriminator(real_images, training=True)
                 pred_fake = self.discriminator(fake_images, training=True)
 
-                # UPDATE for WGAN-GP: Calculate the gradient penalty
+                # Calculate the WGAN-GP gradient penalty
                 gp = self.gradient_penalty(batch_size, real_images, fake_images)
 
-                # UPDATE for WGAN-GP: Add gradient penalty to the original critic loss 
+                # Add gradient penalty to the original discriminator loss 
                 disc_loss = self.discriminator_loss(pred_real, pred_fake) + gp * self.gp_weight 
 
-            # Compute critic gradients
+            # Compute discriminator gradients
             grads = tape.gradient(disc_loss, self.discriminator.trainable_variables)
+
             # Update discriminator weights
             self.discriminator_opt.apply_gradients(zip(grads, self.discriminator.trainable_variables))
 
-        # Step 2.
+        # Step 2. Train the generator
         with tf.GradientTape() as tape:
             fake_images = self.generator(noise, training=True)
             pred_fake = self.discriminator(fake_images, training=True)
             gen_loss = self.generator_loss(pred_fake)
+
         # Compute generator gradients
         grads = tape.gradient(gen_loss, self.generator.trainable_variables)
+
         # Update generator wieghts
         self.generator_opt.apply_gradients(zip(grads, self.generator.trainable_variables))   
-
-
-
-            # gen_loss = self.generator_loss(fake_output)
-            # disc_loss = self.discriminator_loss(real_output, fake_output)
-
-        # gradients_of_generator = gen_tape.gradient(gen_loss, self.generator.trainable_variables)
-        # gradients_of_discriminator = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
-
-        # generator_optimizer.apply_gradients(zip(gradients_of_generator, self.generator.trainable_variables))
-        # discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.discriminator.trainable_variables))
 
         # Update the metrics.
         # Metrics are configured in `compile()`.
@@ -217,10 +154,51 @@ class ResultsCallback(tf.keras.callbacks.Callback):
         imageio.mimsave(self.results_path + "/output.gif", imageio_images, duration=self.duration)
 
 
+# face dataset path
+dataset_path = "Dataset/img_align_celeba/img_align_celeba"
+
+# Set the input shape and size for the generator and discriminator
+img_shape = (64, 64, 3) # The shape of the input image, input to the discriminator
+noise_dim = 128 # The dimension of the noise vector, input to the generator
+model_path = 'Models/02_WGANGP_faces'
+os.makedirs(model_path, exist_ok=True)
+
+train_images = []
+for image_path in tqdm(os.listdir(dataset_path)):
+    img = cv2.imread(os.path.join(dataset_path, image_path))
+    img = cv2.resize(img, (img_shape[0], img_shape[1]))
+    train_images.append(img)
+
+    # limit dataset to 100.000
+    # if len(train_images) >= 10000:
+    #     break
+
+# Normalize image pixel values to [-1, 1]
+train_images = (np.array(train_images).astype('float32') - 127.5) / 127.5 
+
+generator = build_generator(noise_dim)
+generator.summary()
+
+discriminator = build_discriminator(img_shape)
+discriminator.summary()
+
+generator_optimizer = tf.keras.optimizers.Adam(0.0001, beta_1=0.5, beta_2=0.9)
+discriminator_optimizer = tf.keras.optimizers.Adam(0.0001, beta_1=0.5, beta_2=0.9)
+
+# Wasserstein loss for the discriminator
+def discriminator_w_loss(pred_real, pred_fake):
+    real_loss = tf.reduce_mean(pred_real)
+    fake_loss = tf.reduce_mean(pred_fake)
+    return fake_loss - real_loss
+
+# Wasserstein loss for the generator
+def generator_w_loss(pred_fake):
+    return -tf.reduce_mean(pred_fake)
+
 callback = ResultsCallback(noise_dim=noise_dim, output_path=model_path)
 tb_callback = TensorBoard(model_path + '/logs', update_freq=1)
 
-gan = WGAN_GP(discriminator, generator, noise_dim, critic_extra_steps=5)
+gan = WGAN_GP(discriminator, generator, noise_dim, discriminator_extra_steps=5)
 gan.compile(discriminator_optimizer, generator_optimizer, discriminator_w_loss, generator_w_loss, run_eagerly=False)
 
-gan.fit(train_images, epochs=100, batch_size=128, callbacks=[callback, tb_callback])
+gan.fit(train_images, epochs=200, batch_size=128, callbacks=[callback, tb_callback])

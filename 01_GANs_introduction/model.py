@@ -12,17 +12,20 @@ def build_generator(noise_dim):
     x = layers.Reshape((7, 7, 256))(x)
     assert x.shape == (None, 7, 7, 256)  # Note: None is the batch size
 
-    x = layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False)(x)
+    x = layers.Conv2D(128, (5, 5), strides=(1, 1), padding='same', use_bias=False)(x)
     assert x.shape == (None, 7, 7, 128)
     x = layers.BatchNormalization()(x)
     x = layers.LeakyReLU()(x)
 
-    x = layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False)(x)
+    x = layers.UpSampling2D(size=(2, 2))(x)
+    x = layers.Conv2D(64, (5, 5), strides=(1, 1), padding='same', use_bias=False)(x)
     assert x.shape == (None, 14, 14, 64)
     x = layers.BatchNormalization()(x)
     x = layers.LeakyReLU()(x)
 
-    x = layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False)(x)
+    x = layers.UpSampling2D(size=(2, 2))(x)
+    x = layers.Conv2D(1, (5, 5), strides=(1, 1), padding='same', use_bias=False)(x)
+
     # add last acvitaion layer of tanh
     x = layers.Activation('tanh')(x)
     assert x.shape == (None, 28, 28, 1)
