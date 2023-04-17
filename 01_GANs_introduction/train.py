@@ -1,5 +1,3 @@
-# https://github.com/MoranReznik/WGAN-GP/blob/main/wgans_attation.ipynb - try to implement CNN with attention
-
 import os
 import cv2
 import typing
