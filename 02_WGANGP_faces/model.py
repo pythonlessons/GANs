@@ -1,6 +1,8 @@
 import tensorflow as tf
 from keras import layers
 
+from mltu.tensorflow.layers import SelfAttention
+
 # Define the generator model
 def build_generator(noise_dim, output_channels=3, alpha=0.2):
     inputs = layers.Input(shape=noise_dim, name="input")
@@ -17,6 +19,8 @@ def build_generator(noise_dim, output_channels=3, alpha=0.2):
     x = layers.BatchNormalization()(x)
     x = layers.LeakyReLU(alpha)(x)
 
+    # x = SelfAttention()(x)
+
     x = layers.Conv2DTranspose(128, (5, 5), strides=(2, 2), padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = layers.LeakyReLU(alpha)(x)
@@ -25,7 +29,8 @@ def build_generator(noise_dim, output_channels=3, alpha=0.2):
     x = layers.BatchNormalization()(x)
     x = layers.LeakyReLU(alpha)(x)
 
-    x = layers.Conv2DTranspose(output_channels, (5, 5), strides=(1, 1), padding="same")(x)
+
+    x = layers.Conv2D(output_channels, (5, 5), strides=(1, 1), padding="same")(x)
     x = layers.Activation("tanh")(x)
     assert x.shape == (None, 64, 64, output_channels)
 
@@ -38,8 +43,13 @@ def build_generator(noise_dim, output_channels=3, alpha=0.2):
 def build_discriminator(img_shape, activation='linear', alpha=0.2):
     inputs = layers.Input(shape=img_shape, name="input")
 
-    x = layers.Conv2D(64, (4, 4), strides=(2, 2), padding='same')(inputs)
+    x = layers.Conv2D(32, (4, 4), strides=(2, 2), padding='same')(inputs)
     x = layers.LeakyReLU(alpha)(x)
+
+    x = layers.Conv2D(64, (4, 4), strides=(2, 2), padding='same')(x)
+    x = layers.LeakyReLU(alpha)(x)
+
+    # x = SelfAttention()(x)
 
     x = layers.Conv2D(128, (4, 4), strides=(2, 2), padding='same')(x)
     x = layers.LeakyReLU(alpha)(x)
@@ -50,10 +60,11 @@ def build_discriminator(img_shape, activation='linear', alpha=0.2):
     x = layers.Conv2D(512, (4, 4), strides=(2, 2), padding='same')(x)
     x = layers.LeakyReLU(alpha)(x)
 
-    x = layers.Conv2D(512, (4, 4), strides=(2, 2), padding='same')(x)
-    x = layers.LeakyReLU(alpha)(x)
+    # x = layers.Conv2D(512, (4, 4), strides=(2, 2), padding='same')(x)
+    # x = layers.LeakyReLU(alpha)(x)
 
     x = layers.Flatten()(x)
+    x = layers.Dropout(0.3)(x)
 
     x = layers.Dense(1, activation=activation)(x)
 
